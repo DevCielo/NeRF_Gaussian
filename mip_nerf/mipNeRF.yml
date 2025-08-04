@@ -16,7 +16,7 @@ dependencies:
   - tqdm
 
   # NeRF dependencies
-  - cudatoolkit=11.3    # or cudatoolkit=10.2 if that’s what your GPU supports
+  - # cudatoolkit=11.3    # ONLY IF U HAVE GPU
   - pytorch=1.12        # will pull in matching CUDA
   - torchvision=0.13
   - torchaudio=0.12
