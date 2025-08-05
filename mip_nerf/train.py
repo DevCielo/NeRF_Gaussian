@@ -1,3 +1,4 @@
+# train.py
 import os.path
 import shutil
 import torch
@@ -68,8 +69,10 @@ def train_model(config):
         max_deg=config.max_deg,
         viewdirs_min_deg=config.viewdirs_min_deg,
         viewdirs_max_deg=config.viewdirs_max_deg,
-        device=config.device,  # now a torch.device
+        device=config.device,
+        use_hash_encoding=config.use_hash_encoding,
     )
+    
     optimizer = optim.AdamW(
         model.parameters(),
         lr=config.lr_init,

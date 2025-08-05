@@ -1,3 +1,4 @@
+# visualize.py
 import torch
 from os import path
 from config import get_config
@@ -13,13 +14,13 @@ def visualize(config):
 
     model = MipNeRF(
         use_viewdirs=config.use_viewdirs,
-        randomized=config.randomized,
+        randomized=False,
         ray_shape=config.ray_shape,
         white_bkgd=config.white_bkgd,
         num_levels=config.num_levels,
         num_samples=config.num_samples,
         hidden=config.hidden,
-        density_noise=config.density_noise,
+        density_noise=0,
         density_bias=config.density_bias,
         rgb_padding=config.rgb_padding,
         resample_padding=config.resample_padding,
@@ -28,7 +29,9 @@ def visualize(config):
         viewdirs_min_deg=config.viewdirs_min_deg,
         viewdirs_max_deg=config.viewdirs_max_deg,
         device=config.device,
+        use_hash_encoding=config.use_hash_encoding,
     )
+    
     model.load_state_dict(torch.load(config.model_weight_path))
     model.eval()
 
