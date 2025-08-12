@@ -139,6 +139,16 @@ class NeRFDataset(Dataset):
 
         ones = np.ones_like(origins[..., :1])
 
+        # image ids per pixel
+        # For NeRF-W appearance embeddings, only training images get unique ids.
+        # For test/val/render, assign -1 and the model will use a zero embedding.
+        if self.split != "train":
+            image_ids = -np.ones_like(origins[..., :1], dtype=np.int64)
+        else:
+            n_imgs = self.cam_to_world.shape[0]
+            ids = np.arange(n_imgs, dtype=np.int64)[:, None, None, None]
+            image_ids = np.broadcast_to(ids, origins[..., :1].shape)
+
         self.rays = Rays(
             origins=origins,
             directions=directions,
@@ -146,13 +156,25 @@ class NeRFDataset(Dataset):
             radii=radii,
             lossmult=ones,
             near=ones * self.near,
-            far=ones * self.far)
+            far=ones * self.far,
+            image_ids=image_ids,
+        )
 
     def flatten_to_pytorch(self):
         if self.rays is not None:
-            self.rays = namedtuple_map(lambda r: torch.tensor(r).float().reshape([-1, r.shape[-1]]), self.rays)
+            # Preserve dtype for image_ids as long, others as float
+            self.rays = Rays(
+                origins=torch.tensor(self.rays.origins).float().reshape([-1, self.rays.origins.shape[-1]]),
+                directions=torch.tensor(self.rays.directions).float().reshape([-1, self.rays.directions.shape[-1]]),
+                viewdirs=torch.tensor(self.rays.viewdirs).float().reshape([-1, self.rays.viewdirs.shape[-1]]),
+                radii=torch.tensor(self.rays.radii).float().reshape([-1, self.rays.radii.shape[-1]]),
+                lossmult=torch.tensor(self.rays.lossmult).float().reshape([-1, self.rays.lossmult.shape[-1]]),
+                near=torch.tensor(self.rays.near).float().reshape([-1, self.rays.near.shape[-1]]),
+                far=torch.tensor(self.rays.far).float().reshape([-1, self.rays.far.shape[-1]]),
+                image_ids=torch.tensor(self.rays.image_ids).long().reshape([-1, self.rays.image_ids.shape[-1]]),
+            )
         if self.images is not None:
-            self.images = torch.from_numpy(self.images.reshape([-1, 3]))
+            self.images = torch.from_numpy(self.images.reshape([-1, 3])).float()
 
     def ray_to_device(self, rays):
         return namedtuple_map(lambda r: r.to(self.device), rays)
@@ -242,6 +264,7 @@ class Multicam(NeRFDataset):
             # halfway between inscribed by / circumscribed about the pixel.
             radii = [v[..., None] * 2 / np.sqrt(12) for v in dx]
 
+            image_ids = [np.full_like(v[..., :1], i, dtype=np.int64) for i, v in enumerate(directions)]
             self.rays = Rays(
                 origins=origins,
                 directions=directions,
@@ -249,7 +272,9 @@ class Multicam(NeRFDataset):
                 radii=radii,
                 lossmult=lossmult,
                 near=near,
-                far=far)
+                far=far,
+                image_ids=image_ids,
+            )
             self.rays = namedtuple_map(flatten, self.rays)
 
 
@@ -468,7 +493,9 @@ class LLFF(NeRFDataset):
             radii=radii,
             lossmult=ones,
             near=ones * self.near,
-            far=ones * self.far)
+            far=ones * self.far,
+            image_ids=self.rays.image_ids,
+        )
 
 
 dataset_dict = {

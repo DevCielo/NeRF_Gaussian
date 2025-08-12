@@ -4,7 +4,16 @@ import torch
 import collections
 
 
-Rays = collections.namedtuple('Rays', ('origins', 'directions', 'viewdirs', 'radii', 'lossmult', 'near', 'far'))
+Rays = collections.namedtuple('Rays', (
+    'origins',
+    'directions',
+    'viewdirs',
+    'radii',
+    'lossmult',
+    'near',
+    'far',
+    'image_ids',
+))
 
 
 def namedtuple_map(fn, tup):

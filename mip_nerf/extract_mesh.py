@@ -15,6 +15,18 @@ from tqdm import tqdm
 
 
 def extract_mesh(config):
+    # Try to infer NeRF-W params from checkpoint
+    state = torch.load(config.model_weight_path, map_location="cpu")
+    has_nerfw = False
+    appearance_dim = getattr(config, 'appearance_dim', 32)
+    num_images = 0
+    if isinstance(state, dict) and any(k.startswith('appearance_embed.weight') for k in state.keys()):
+        w = state['appearance_embed.weight']
+        if isinstance(w, torch.Tensor):
+            has_nerfw = True
+            num_images, appearance_dim = w.shape[0], w.shape[1]
+    has_transient = any(k.startswith('transient_net') for k in state.keys()) if isinstance(state, dict) else False
+
     model = MipNeRF(
         use_viewdirs=config.use_viewdirs,
         randomized=False,
@@ -34,9 +46,14 @@ def extract_mesh(config):
         device=config.device,
         return_raw=True,
         use_hash_encoding=config.use_hash_encoding,
+        use_nerfw=has_nerfw or getattr(config, 'use_nerfw', False),
+        appearance_dim=appearance_dim,
+        num_images=num_images,
+        use_transient=has_transient or getattr(config, 'use_transient', False),
+        transient_dim=getattr(config, 'transient_dim', 16),
     )
 
-    model.load_state_dict(torch.load(config.model_weight_path))
+    model.load_state_dict(torch.load(config.model_weight_path, map_location=config.device))
     model.eval()
     model = model.to(config.device)
 
@@ -56,6 +73,7 @@ def extract_mesh(config):
     directions = torch.zeros_like(origins)
     viewdirs = torch.zeros_like(origins)
     radii = torch.ones_like(origins[..., :1]) * 0.0005
+    image_ids = torch.zeros_like(origins[..., :1], dtype=torch.long)
     ones = torch.ones_like(origins[..., :1])
     rays = Rays(
             origins=origins,
@@ -64,7 +82,9 @@ def extract_mesh(config):
             radii=radii,
             lossmult=ones,
             near=ones * near,
-            far=ones * far)
+            far=ones * far,
+            image_ids=image_ids,
+    )
 
     print("Predicting occupancy")
     raws = []

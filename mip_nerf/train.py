@@ -74,6 +74,16 @@ def train_model(config):
         shuffle=True,
     )
     data_iter = iter(loader)
+    # Deduce num_images for appearance embeddings (for train split)
+    num_images = 0
+    try:
+        if hasattr(dataset, 'cam_to_world') and hasattr(dataset.cam_to_world, 'shape'):
+            num_images = int(dataset.cam_to_world.shape[0])
+        elif hasattr(dataset, 'n_poses'):
+            num_images = int(dataset.n_poses)
+    except Exception:
+        num_images = 0
+
     model = MipNeRF(
         use_viewdirs=config.use_viewdirs,
         randomized=config.randomized,
@@ -92,6 +102,11 @@ def train_model(config):
         viewdirs_max_deg=config.viewdirs_max_deg,
         device=config.device,
         use_hash_encoding=config.use_hash_encoding,
+        use_nerfw=getattr(config, 'use_nerfw', False),
+        appearance_dim=getattr(config, 'appearance_dim', 32),
+        num_images=num_images,
+        use_transient=getattr(config, 'use_transient', False),
+        transient_dim=getattr(config, 'transient_dim', 16),
     )
     optimizer = optim.AdamW(
         model.parameters(),
@@ -127,6 +142,9 @@ def train_model(config):
         loss_val, psnr_train = loss_func(
             comp_rgb, pixels, rays.lossmult.to(config.device)
         )
+        # NeRF-W embedding regularization
+        if getattr(config, 'use_nerfw', False) and hasattr(model, 'appearance_embed') and model.appearance_embed is not None:
+            loss_val = loss_val + getattr(config, 'embed_l2_reg', 0.0) * torch.mean(model.appearance_embed.weight ** 2)
         optimizer.zero_grad()
         loss_val.backward()
         optimizer.step()

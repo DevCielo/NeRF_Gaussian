@@ -48,6 +48,12 @@ def get_config():
     p.add_argument("--grid_size", type=int, default=256)
     p.add_argument("--sigma_threshold", type=float, default=50.0)
     p.add_argument("--occ_threshold", type=float, default=0.2)
+    # NeRF-W options
+    p.add_argument("--use_nerfw", action="store_true")
+    p.add_argument("--appearance_dim", type=int, default=32)
+    p.add_argument("--use_transient", action="store_true")
+    p.add_argument("--transient_dim", type=int, default=16)
+    p.add_argument("--embed_l2_reg", type=float, default=1e-4)
     cfg = p.parse_args()
     if cfg.dataset_name == "llff" and not cfg.override_defaults:
         cfg.factor, cfg.ray_shape, cfg.white_bkgd, cfg.density_noise = 4, "cylinder", False, 1.0

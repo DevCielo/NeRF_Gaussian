@@ -50,6 +50,12 @@ class MipNeRF(nn.Module):
         use_hash_encoding=False,
         hash_levels=16,
         hash_features=2,
+        # NeRF-W extensions
+        use_nerfw=False,
+        appearance_dim=32,
+        num_images=0,
+        use_transient=False,
+        transient_dim=16,
     ):
         super().__init__()
         self.use_hash = use_hash_encoding
@@ -65,6 +71,11 @@ class MipNeRF(nn.Module):
         self.density_bias = density_bias
         self.return_raw = return_raw
         self.device = device
+        self.use_nerfw = use_nerfw
+        self.appearance_dim = appearance_dim
+        self.num_images = num_images
+        self.use_transient = use_transient
+        self.transient_dim = transient_dim
 
         if self.use_hash:
             self.encoder = HashGridEncoder(num_levels=hash_levels, features_per_level=hash_features)
@@ -87,8 +98,21 @@ class MipNeRF(nn.Module):
         if self.use_viewdirs:
             self.viewdir_enc = PositionalEncoding(viewdirs_min_deg, viewdirs_max_deg)
             rgb_in_hidden += 3 + (viewdirs_max_deg - viewdirs_min_deg) * 3 * 2
+        # Appearance embeddings (NeRF-W)
+        if self.use_nerfw and self.num_images and self.appearance_dim > 0:
+            self.appearance_embed = nn.Embedding(self.num_images, self.appearance_dim)
+            nn.init.normal_(self.appearance_embed.weight, mean=0.0, std=0.01)
+            rgb_in_hidden += self.appearance_dim
+        else:
+            self.appearance_embed = None
         self.rgb_net = nn.Sequential(nn.Linear(rgb_in_hidden, hidden), nn.ReLU(True), nn.Linear(hidden, hidden), nn.ReLU(True))
         self.final_rgb = nn.Sequential(nn.Linear(hidden, 3), nn.Sigmoid())
+        # Transient head (optional)
+        if self.use_transient:
+            self.transient_net = nn.Sequential(nn.Linear(rgb_in_hidden, hidden), nn.ReLU(True), nn.Linear(hidden, hidden), nn.ReLU(True))
+            self.final_transient_rgb = nn.Sequential(nn.Linear(hidden, 3), nn.Sigmoid())
+            self.final_transient_sigma = nn.Linear(hidden, 1)
+            self.transient_sigma_act = nn.Softplus()
         self.density_act = nn.Softplus()
         self.apply(_xavier_init)
         self.to(device)
@@ -135,22 +159,42 @@ class MipNeRF(nn.Module):
             h = self.density_net(h)
             raw_density = self.final_density(h).view(-1, self.num_samples, 1)
 
+            rgb_inputs = [h]
             if self.use_viewdirs:
                 v_enc = self.viewdir_enc(rays.viewdirs.to(self.device))
                 v = torch.cat((v_enc, rays.viewdirs.to(self.device)), -1)
                 v = v.repeat_interleave(self.num_samples, 0)
-                h_rgb = torch.cat((h, v), -1)
-            else:
-                h_rgb = h
+                rgb_inputs.append(v)
+            if self.use_nerfw and self.appearance_embed is not None:
+                img_ids = rays.image_ids.to(self.device).long().squeeze(-1)
+                # For negative ids (test/render), use zero appearance embedding
+                valid = img_ids >= 0
+                a = torch.zeros((img_ids.shape[0], self.appearance_dim), device=self.device, dtype=h.dtype)
+                if torch.any(valid):
+                    a_valid = self.appearance_embed(img_ids[valid])
+                    a[valid] = a_valid
+                a = a.repeat_interleave(self.num_samples, 0)
+                rgb_inputs.append(a)
+            h_rgb = torch.cat(rgb_inputs, -1)
 
             h_rgb = self.rgb_net(h_rgb)
             raw_rgb = self.final_rgb(h_rgb).view(-1, self.num_samples, 3)
+            if self.use_transient:
+                h_tr = self.transient_net(h_rgb)
+                raw_tr_rgb = self.final_transient_rgb(h_tr).view(-1, self.num_samples, 3)
+                raw_tr_sigma = self.final_transient_sigma(h_tr).view(-1, self.num_samples, 1)
 
             if self.randomized and self.density_noise:
                 raw_density = raw_density + self.density_noise * torch.rand_like(raw_density)
 
             rgb = raw_rgb * (1 + 2 * self.rgb_padding) - self.rgb_padding
             density = self.density_act(raw_density + self.density_bias)
+            if self.use_transient:
+                tr_sigma = self.transient_sigma_act(raw_tr_sigma)
+                # Combine static and transient components into an effective radiance field
+                total_sigma = density + tr_sigma
+                rgb = (density * rgb + tr_sigma * raw_tr_rgb) / (total_sigma + 1e-8)
+                density = total_sigma
             comp_rgb, distance, acc, weights, _ = volumetric_rendering(
                 rgb, density, t_vals, rays.directions.to(rgb.device), self.white_bkgd
             )

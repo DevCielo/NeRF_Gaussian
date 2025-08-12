@@ -12,6 +12,18 @@ from pose_utils import visualize_depth, visualize_normals, to8b
 def visualize(config):
     data = get_dataloader(config.dataset_name, config.base_dir, split="render", factor=config.factor, shuffle=False)
 
+    # Infer NeRF-W embedding shape from checkpoint if present
+    state = torch.load(config.model_weight_path, map_location="cpu")
+    has_nerfw = False
+    appearance_dim = getattr(config, 'appearance_dim', 32)
+    num_images = 0
+    if isinstance(state, dict) and any(k.startswith('appearance_embed.weight') for k in state.keys()):
+        w = state['appearance_embed.weight']
+        if isinstance(w, torch.Tensor):
+            has_nerfw = True
+            num_images, appearance_dim = w.shape[0], w.shape[1]
+    has_transient = any(k.startswith('transient_net') for k in state.keys()) if isinstance(state, dict) else False
+
     model = MipNeRF(
         use_viewdirs=config.use_viewdirs,
         randomized=False,
@@ -30,9 +42,14 @@ def visualize(config):
         viewdirs_max_deg=config.viewdirs_max_deg,
         device=config.device,
         use_hash_encoding=config.use_hash_encoding,
+        use_nerfw=has_nerfw or getattr(config, 'use_nerfw', False),
+        appearance_dim=appearance_dim,
+        num_images=num_images,
+        use_transient=has_transient or getattr(config, 'use_transient', False),
+        transient_dim=getattr(config, 'transient_dim', 16),
     )
     
-    model.load_state_dict(torch.load(config.model_weight_path))
+    model.load_state_dict(torch.load(config.model_weight_path, map_location=config.device))
     model.eval()
 
     print("Generating Video using", len(data), "different view points")
@@ -42,6 +59,7 @@ def visualize(config):
     if config.visualize_normals:
         normal_frames = []
     for ray in tqdm(data):
+        # Ensure image_ids exist (render loader sets ids to -1)
         img, dist, acc = model.render_image(ray, data.h, data.w, chunks=config.chunks)
         rgb_frames.append(img)
         if config.visualize_depth:
