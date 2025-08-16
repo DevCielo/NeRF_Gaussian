@@ -4,7 +4,7 @@ from typing import Optional, Tuple
 
 import torch
 
-from gaussian import Gaussian3D
+from .gaussian import Gaussian3D
 
 
 def load_point_cloud(

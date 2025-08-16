@@ -1,0 +1,12 @@
+numpy>=1.22
+# Install torch from PyPI; on macOS this includes MPS support if available
+# For CUDA-enabled systems, prefer the official instructions at pytorch.org
+torch>=2.1
+imageio>=2.22
+Pillow>=9.5
+trimesh>=3.23
+opencv-python>=4.7
+tqdm>=4.64
+lpips>=0.1.4
+torchmetrics>=1.4
+scipy>=1.10

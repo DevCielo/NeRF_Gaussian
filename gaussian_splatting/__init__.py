@@ -14,6 +14,15 @@ from .pointcloud_loader import (
     load_point_cloud,
     points_to_gaussians,
 )
+from .gaussian4d import Gaussian4D, pack_gaussians_4d, gaussian4d_to_3d_batch
+# Optional: NeRF→Gaussian conversion utilities (may require extra deps)
+try:
+    from .convert_from_nerf import extract_gaussians_from_trained_nerf, demo_convert_and_render
+    _HAS_CONVERTER = True
+except Exception:  # noqa: E722
+    extract_gaussians_from_trained_nerf = None  # type: ignore[assignment]
+    demo_convert_and_render = None  # type: ignore[assignment]
+    _HAS_CONVERTER = False
 
 __all__ = [
     "Camera",
@@ -22,6 +31,12 @@ __all__ = [
     "render",
     "load_point_cloud",
     "points_to_gaussians",
+    "Gaussian4D",
+    "pack_gaussians_4d",
+    "gaussian4d_to_3d_batch",
+    # May be None if dependencies are missing
+    "extract_gaussians_from_trained_nerf",
+    "demo_convert_and_render",
 ]
 
 

@@ -1,7 +1,7 @@
 import torch, torch.nn as nn
-from hashencoding import HashGridEncoder
-from ray_utils import sample_along_rays, resample_along_rays, volumetric_rendering, namedtuple_map
-from pose_utils import to8b
+from .hashencoding import HashGridEncoder
+from .ray_utils import sample_along_rays, resample_along_rays, volumetric_rendering, namedtuple_map
+from .pose_utils import to8b
 
 
 class PositionalEncoding(nn.Module):
@@ -126,6 +126,10 @@ class MipNeRF(nn.Module):
         comp_rgbs = []
         distances = []
         accs = []
+        # Track last-level sampling info for optional raw/sample returns
+        last_means3d = None
+        last_covs3d = None
+        last_t_vals = None
         for l in range(self.num_levels):
             if l == 0:
                 t_vals, (mean, var) = sample_along_rays(
@@ -203,9 +207,28 @@ class MipNeRF(nn.Module):
             distances.append(distance)
             accs.append(acc)
 
+            # Remember last-level sampling tensors
+            if l == self.num_levels - 1:
+                last_means3d = mean  # (B, num_samples, 3)
+                # var encodes the 3D covariance of ray segments from cast_rays
+                # Depending on ray_utils implementation, this is (B, num_samples, 3, 3)
+                last_covs3d = var
+                last_t_vals = t_vals
+
         if self.return_raw:
-            raws = torch.cat((raw_rgb.detach(), density.detach()), -1).cpu()
-            return torch.stack(comp_rgbs), torch.stack(distances), torch.stack(accs), raws
+            # raws: (B, num_samples, 4) with RGB in [0,1] and density sigma
+            raws = torch.cat((raw_rgb.detach(), density.detach()), -1)
+            # Return additional sampling information to enable NeRF->Gaussian conversion
+            # Means/Covs/T are not detached so callers can choose device; keep shapes as-is
+            return (
+                torch.stack(comp_rgbs),
+                torch.stack(distances),
+                torch.stack(accs),
+                raws,
+                last_means3d,
+                last_covs3d,
+                last_t_vals,
+            )
 
         return torch.stack(comp_rgbs), torch.stack(distances), torch.stack(accs)
 
